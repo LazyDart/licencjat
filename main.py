@@ -1,6 +1,4 @@
-def main():
-    print("Hello from licencjat!")
-
+from src.train_baseline import run_baseline
 
 if __name__ == "__main__":
-    main()
+    run_baseline()
