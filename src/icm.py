@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 import torchrl
 from tensordict import TensorDict
@@ -10,17 +12,41 @@ class ICM(nn.Module):
     Intrinsic Curiosity Module implementation in discrete action space.
     """
 
-    def __init__(self, head: nn.Module, action_space: int):
+    def __init__(
+            self, 
+            head: nn.Module, 
+            action_space: int, 
+            feature_dim: Optional[int] = None,
+            hidden: Optional[int] = None,
+            inverse_model_network_override: Optional[nn.Sequential] = None,
+            next_state_pred_network_override: Optional[nn.Sequential] = None
+        ):
         super().__init__()
+
         self.action_space: int = action_space # corresponds to output_size
         self.head: nn.Module = head # Some kind of nn.Module that returns encoded state.
 
-        self.inverse_model_network: nn.Sequential = ... # (batch, 2*state) and return (batch, action_space) logits
-        self.sparse_softmax_cross_entropy: ... = ... # (cross entropy between logits and choosen action) line 273 in model.py
+        if (inverse_model_network_override is not None and next_state_pred_network_override is not None):
+            self.inverse_model_network = nn.Sequential(
+                nn.Linear(2 * feature_dim, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, action_space),
+            )
+            self.next_state_pred_network = nn.Sequential(
+                nn.Linear(feature_dim + action_space, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, feature_dim),
+            )
+
+        elif (feature_dim is not None and hidden is not None):
+            self.inverse_model_network = inverse_model_network_override
+            self.next_state_pred_network = next_state_pred_network_override
+        
+        else:
+            raise ValueError("Either dimensions must be provided or matching neural networks.")
+
         self.inv_loss_cross_entropy: nn.CrossEntropyLoss = nn.CrossEntropyLoss()
-
-        self.next_state_pred_network: nn.Sequential = ... # (batch, cat(encode_state, action_space))
-
+    
     def encode(self, x):
         # Basic encoding of the state_t
         return self.head(x)
@@ -58,21 +84,23 @@ class ICM(nn.Module):
         
         return inverse_model_logits, pred_next_state, encoded_next_state#, action_probabilities #TODO is it needed?
     
-def icm_training_step(icm: ICM, optimizer, td, beta: float = 0.2, eta: float = 0.01):
+def icm_training_step(icm: ICM, optimizer: torch.optim.Optimizer, td: TensorDict, beta: float = 0.2, eta: float = 0.01, device="cuda:0"):
     optimizer.zero_grad()
+    
+    icm = icm.to(device)
+    td = td.to(device)
 
     inv_logits, pred_next_enc, next_state_enc = icm(td)
 
     inv_loss = icm.inverse_loss(inv_logits, td["action"])
     fwd_loss = icm.forward_dynamics_loss(pred_next_enc, next_state_enc)
-    loss = ... #
+    loss = (1 - beta) * inv_loss + beta * fwd_loss
 
     loss.backward()
     optimizer.step()
 
-    # intrinsic reward often: eta * 0.5 * ||phi_hat - phi||^2 per-sample
     with torch.no_grad():
-        intrinsic_reward = eta * 0.5 * ((pred_next_enc - next_state_enc) ** 2).sum(dim=1) # TODO: check it...
+        intrinsic_reward = eta * 0.5 * ((pred_next_enc - next_state_enc) ** 2).sum(dim=1)
 
     return {
         "loss": loss.item(),
