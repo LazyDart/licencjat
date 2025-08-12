@@ -1,7 +1,6 @@
 from typing import Optional
 
 import torch
-import torchrl
 from tensordict import TensorDict
 
 import torch.nn as nn
@@ -78,12 +77,15 @@ class ICM(nn.Module):
         encoded_next_state = self.encode(x["next_state"])
 
         inverse_model_logits = self.inverse_model(encoded_state, encoded_next_state)
-        action_probabilities = self.inverse_action_probabilties(inverse_model_logits)
 
         pred_next_state = self.forward_dynamic_model(encoded_state, action)
         
-        return inverse_model_logits, pred_next_state, encoded_next_state#, action_probabilities #TODO is it needed?
+        return inverse_model_logits, pred_next_state, encoded_next_state
     
+    def calculate_intrinsic_reward(self, pred_next_enc, next_state_enc, eta):
+        with torch.no_grad():
+            return eta * 0.5 * ((pred_next_enc - next_state_enc) ** 2).sum(dim=1)
+
 def icm_training_step(icm: ICM, optimizer: torch.optim.Optimizer, td: TensorDict, beta: float = 0.2, eta: float = 0.01, device="cuda:0"):
     optimizer.zero_grad()
     
@@ -99,8 +101,7 @@ def icm_training_step(icm: ICM, optimizer: torch.optim.Optimizer, td: TensorDict
     loss.backward()
     optimizer.step()
 
-    with torch.no_grad():
-        intrinsic_reward = eta * 0.5 * ((pred_next_enc - next_state_enc) ** 2).sum(dim=1)
+    intrinsic_reward = icm.calculate_intrinsic_reward(pred_next_enc, next_state_enc, eta)
 
     return {
         "loss": loss.item(),
