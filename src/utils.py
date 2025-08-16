@@ -26,7 +26,6 @@ def set_device() -> torch.device:
     else:
         device = torch.device('cpu')
 
-    device = torch.device('cpu')
     # Set default dtype to float32
     torch.set_default_dtype(torch.float32)
     return device

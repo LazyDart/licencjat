@@ -25,7 +25,7 @@ class ICM(nn.Module):
         self.action_space: int = action_space # corresponds to output_size
         self.head: nn.Module = head # Some kind of nn.Module that returns encoded state.
 
-        if (inverse_model_network_override is not None and next_state_pred_network_override is not None):
+        if (feature_dim is not None and hidden is not None):
             self.inverse_model_network = nn.Sequential(
                 nn.Linear(2 * feature_dim, hidden),
                 nn.ReLU(),
@@ -37,7 +37,7 @@ class ICM(nn.Module):
                 nn.Linear(hidden, feature_dim),
             )
 
-        elif (feature_dim is not None and hidden is not None):
+        elif (inverse_model_network_override is not None and next_state_pred_network_override is not None):
             self.inverse_model_network = inverse_model_network_override
             self.next_state_pred_network = next_state_pred_network_override
         
@@ -104,7 +104,7 @@ def icm_training_step(icm: ICM, optimizer: torch.optim.Optimizer, td: TensorDict
     intrinsic_reward = icm.calculate_intrinsic_reward(pred_next_enc, next_state_enc, eta)
 
     return {
-        "loss": loss.item(),
+        "icm_loss": loss.item(),
         "inverse_loss": inv_loss.item(),
         "forward_loss": fwd_loss.item(),
         "intrinsic_reward": intrinsic_reward,  # tensor [B]

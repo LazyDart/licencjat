@@ -6,6 +6,7 @@ from typing import Optional
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+import minigrid
 import numpy as np
 import gymnasium as gym
 import torch
@@ -15,6 +16,7 @@ from tensordict import TensorDict
 import utils
 from config import Config
 from ppo import PPOAgent, PPOAgentICM
+from model import MinigridFeaturesExtractor
 
 
 def make_agent(
@@ -22,7 +24,14 @@ def make_agent(
     action_dim: int, 
     config: Config, 
     device: str,
-):
+) -> PPOAgent:
+    if "minigrid" in config.env_name.lower():
+        obs_dim = obs_dim
+        feature_extractor = MinigridFeaturesExtractor(obs_dim, config.hidden_dim)
+    else:
+        feature_extractor = None
+        obs_dim = obs_dim[0]
+
     if config.agent.lower() == 'ppo':
         # initialize a PPO agent
         ppo_agent = PPOAgent(
@@ -41,6 +50,7 @@ def make_agent(
             batch_size=config.batch_size,
             max_grad_norm=config.max_grad_norm,
             device=device,
+            feature_extractor_override=feature_extractor,
         )
         return ppo_agent 
     
@@ -63,23 +73,25 @@ def make_agent(
             device=device,
             icm_beta=config.icm_beta,
             icm_eta=config.icm_eta,
-            lr_icm=config.lr_icm
-
+            lr_icm=config.lr_icm,
+            feature_extractor_override=feature_extractor,
         )
         return ppo_agent
     else:
         raise ValueError(f"Invalid agent name: {config.agent}")
     
 
-def create_env(env_name: str):
+def create_env(env_name: str) -> gym.Env: 
     try:
-        env = gym.make(env_name, render_mode='rgb_array')
+        env = gym.make(env_name)
+        if "minigrid" in env_name.lower():
+            env = minigrid.wrappers.ImgObsWrapper(env)
     except:
         raise ValueError(f"Invalid environment name: {env_name}")
     return env
 
 
-def get_env_dims(env, config):
+def get_env_dims(env, config) -> tuple[tuple[int, ...], int]:
     """
     Gets observation and action dimensions from environment.
     
@@ -91,7 +103,7 @@ def get_env_dims(env, config):
         Tuple[int, int]: Observation dimension, Action dimension
     """
     try:
-        obs_dim = env.observation_space.shape[0]
+        obs_dim = env.observation_space.shape
         action_dim = env.action_space.shape[0] if config.continuous_action_space else env.action_space.n
         logger.info(f"Observation Dimension: {obs_dim} | Action Dimension: {action_dim}")
     except AttributeError as e:
@@ -100,7 +112,7 @@ def get_env_dims(env, config):
 
 
 def run_training(
-    env, 
+    env: gym.Env, 
     config: Config, 
     device: str
 ):
@@ -119,6 +131,7 @@ def run_training(
     }
 
     running_eps_reward = 0
+    running_eps_intrinsic_reward = 0
     running_eps_length = 0
     running_num_eps = 0
 
@@ -129,6 +142,7 @@ def run_training(
     while t_so_far < config.num_train_steps:
         obs, _ = env.reset(seed=config.random_seed)
         eps_reward = 0
+        eps_intrinsic_reward = 0
         eps_length = 0
 
         # start episode
@@ -137,17 +151,6 @@ def run_training(
             action, logprob, value = ppo_agent.policy.select_action(obs)
             # print("Action:", action.shape, action.dtype, "Logprob:", logprob.shape, logprob.dtype, "Value:", value)
             next_obs, reward, done, _, info = env.step(action)
-
-            if config.agent == "ppo_icm":
-
-                td = TensorDict({
-                    "action": action,
-                    "state": obs,
-                    "next_state": next_obs,
-                })
-                with torch.no_grad():
-                    _, pred_next_enc, next_state_enc = ppo_agent.icm(td)
-                reward += config.intrinsic_coeff*ppo_agent.icm.calculate_intrinsic_reward(pred_next_enc, next_state_enc, ppo_agent.icm_eta)
 
             eps_reward += reward
             t_so_far += 1
@@ -162,10 +165,26 @@ def run_training(
                 raise NotImplementedError("Other agent not implemented")
 
             if t_so_far % config.update_interval == 0:
+                if config.agent == "ppo_icm":
+                    td = TensorDict({
+                        "action": torch.tensor(np.array(ppo_agent.buffer.actions)).long().to(device),
+                        "state": torch.tensor(np.array(ppo_agent.buffer.states)).to(device),
+                        "next_state": torch.tensor(np.array(ppo_agent.buffer.next_states)).to(device),
+                    })
+                    with torch.no_grad():
+                        _, pred_next_enc, next_state_enc = ppo_agent.icm(td)
+                        intrinsic_reward = ppo_agent.icm.calculate_intrinsic_reward(pred_next_enc, next_state_enc, ppo_agent.icm_eta).cpu().numpy()
+                        for i in range(len(intrinsic_reward)):
+                            ppo_agent.buffer.rewards[i] += intrinsic_reward[i]
+                            eps_intrinsic_reward += intrinsic_reward[i]
+                else:
+                    intrinsic_reward = 0
+
                 ppo_agent.update_weights()
 
             if t_so_far % config.log_interval == 0:
                 running_eps_reward /= running_num_eps
+                running_eps_intrinsic_reward /= running_num_eps
                 running_eps_length /= running_num_eps
 
                 logger.info(f'episode: {eps_so_far} | step: {t_so_far} | reward: {running_eps_reward:.4f} | episode length: {running_eps_length}')
@@ -175,18 +194,23 @@ def run_training(
 
                 wandb.log({
                     "mean_episode_reward": running_eps_reward,
+                    "mean_episode_intrinsic_reward": running_eps_intrinsic_reward,
                     "mean_episode_length": running_eps_length,
                     "episode": eps_so_far,
                     "total_steps": t_so_far,
                 }, step=t_so_far)
 
                 running_eps_reward = 0
+                running_eps_intrinsic_reward = 0
                 running_eps_length = 0
                 running_num_eps = 0
 
             if t_so_far % config.save_interval == 0:
-                checkpoint_path = os.path.join(config.ckpt_dir, f"{config.env_name}_step_{t_so_far}.pt")
-                torch.save(ppo_agent.policy.state_dict(), checkpoint_path)
+                checkpoint_path_policy = os.path.join(config.ckpt_dir, f"{config.env_name}_policy_step_{t_so_far}.pt")
+                torch.save(ppo_agent.policy.state_dict(), checkpoint_path_policy)
+                if config.agent == "ppo_icm":
+                    checkpoint_path_icm = os.path.join(config.ckpt_dir, f"{config.env_name}_icm_step_{t_so_far}.pt")
+                    torch.save(ppo_agent.icm.state_dict(), checkpoint_path_icm)
 
             obs = next_obs
             if done:
@@ -196,6 +220,7 @@ def run_training(
         metrics['eps_lengths'].append(eps_length)
 
         running_eps_reward += eps_reward
+        running_eps_intrinsic_reward += eps_intrinsic_reward
         running_eps_length += eps_length
         running_num_eps += 1
         eps_so_far += 1
@@ -336,11 +361,10 @@ def main(config):
         # initialize wandb for logging
         run = wandb.init(
             project=config.wandb_project,
-            # entity=config.wandb_entity,
             name=config.exp_name or f"{config.env_name}-{time.strftime('%Y%m%dT%H%M%S')}",
             config=config,  # Track hyperparameters
             dir=args.wandb_dir,
-            monitor_gym=True,  # Auto-log gym environment videos
+            monitor_gym=False,  # Auto-log gym environment videos
         )
         logger.info('wandb initialized...')
 

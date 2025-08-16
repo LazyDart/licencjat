@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -55,19 +57,23 @@ class ActorCritic(nn.Module):
             hidden_dim, 
             continuous_action_space=False, 
             action_std_init=0.0, 
-            device='cpu'
+            device='cpu',
+            feature_extractor_override: nn.Module=None,
         ):
         super(ActorCritic, self).__init__()
         self.continuous_action_space = continuous_action_space
         self.device = device
-
+        
         # create shared feature extractor for both actor and critic
-        self.feature_extractor = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
-            nn.Tanh()
-        ).to(device)
+        if feature_extractor_override is None:
+            self.feature_extractor = nn.Sequential(
+                nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
+                nn.Tanh(),
+                nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
+                nn.Tanh()
+            ).to(device)
+        else: 
+            self.feature_extractor = deepcopy(feature_extractor_override).to(device)
 
         if continuous_action_space:
             self.action_var = nn.Parameter(torch.full(size=(action_dim,), fill_value=action_std_init * action_std_init)).to(device)
@@ -93,8 +99,7 @@ class ActorCritic(nn.Module):
             obs = torch.tensor(obs, dtype=torch.float32).to(self.device)
 
         # print("Observation dim:", obs.dim())
-        if obs.dim() == 1:
-            obs = obs.unsqueeze(0)    # add batch dimension if missing
+        obs = obs.unsqueeze(0)    # add batch dimension if missing
 
         # to prevent unnecessary gradient computation
         with torch.no_grad():
@@ -154,7 +159,8 @@ class PPOAgent:
             value_loss_coef=0.5,
             batch_size=64,
             max_grad_norm=0.5,
-            device='cpu'
+            device='cpu',
+            feature_extractor_override=None,
         ):
         self.gamma = gamma
         self.num_epochs = num_epochs
@@ -176,9 +182,17 @@ class PPOAgent:
             continuous_action_space=continuous_action_space,
             action_std_init=action_std_init,
             device=device,
+            feature_extractor_override=feature_extractor_override
         )
 
+        self.buffer = RolloutBuffer()
         self.mse_loss = nn.MSELoss()  # Initialize MSE loss
+
+        self.optimizer = torch.optim.Adam([
+            {'params': self.policy.feature_extractor.parameters()},
+            {'params': self.policy.actor_head.parameters(), 'lr': lr_actor},
+            {'params': self.policy.critic_head.parameters(), 'lr': lr_critic},
+        ])
 
 
     def compute_returns(self):
@@ -221,6 +235,12 @@ class PPOAgent:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        return {
+            "policy_loss": loss,
+            "actor_loss": actor_loss,
+            "critic_loss": critic_loss,
+        }
 
     def update_weights(self):
         # print(len(self.buffer.rewards))
@@ -285,11 +305,13 @@ class PPOAgentICM(PPOAgent):
             max_grad_norm=0.5,
             icm_beta=0.2,
             icm_eta=0.01,
-            device='cpu'
+            device='cpu',
+            feature_extractor_override=None
         ):
         
+        continuous_action_space = False # ICM does not support discountinous actions yet.
+
         super().__init__(
-            self, 
             obs_dim=obs_dim, 
             action_dim=action_dim, 
             hidden_dim=hidden_dim, 
@@ -304,18 +326,22 @@ class PPOAgentICM(PPOAgent):
             value_loss_coef=value_loss_coef,
             batch_size=batch_size,
             max_grad_norm=max_grad_norm,
-            device=device
+            device=device,
+            feature_extractor_override=feature_extractor_override
         )
-        icm_head = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
-            nn.Tanh()
-        ).to(device)
+        if feature_extractor_override is None:
+            icm_head = nn.Sequential(
+                nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
+                nn.Tanh(),
+                nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
+                nn.Tanh()
+            ).to(device)
+        else:
+            icm_head = deepcopy(feature_extractor_override).to(device)
 
         self.icm_beta = icm_beta
         self.icm_eta = icm_eta
-        self.icm = ICM(icm_head, action_dim, obs_dim, hidden_dim)
+        self.icm = ICM(icm_head, action_dim, hidden_dim, hidden_dim).to(device)
 
         self.optimizer = torch.optim.Adam([
             {'params': self.policy.feature_extractor.parameters()},
@@ -328,7 +354,6 @@ class PPOAgentICM(PPOAgent):
 
         self.buffer = RolloutBufferNextState()
         
-        self.buffer.clear()
 
     def update_icm(self):
         # print(len(self.buffer.rewards))
@@ -363,26 +388,27 @@ class PPOAgentICM(PPOAgent):
                 batch_advantages = advantages[batch_indices]
                 batch_rewards_to_go = rewards_to_go[batch_indices]
 
-                self._update_policy_with_batch(
+                policy_loss_values = self._update_policy_with_batch(
                     states=batch_states,
                     actions=batch_actions,
                     old_logprobs=batch_old_logprobs,
                     rewards_to_go=batch_rewards_to_go,
                     advantages=batch_advantages,
                 )
-
                 td = TensorDict({
-                    "action": batch_actions,
+                    "action": batch_actions.long(),
                     "state": batch_states,
                     "next_state": batch_next_states,
                 })
-                icm_training_step(self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device)
+                icm_loss_values = icm_training_step(self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device)
+                
+    
         
 
     def update_weights(self):
-        self._update_policy()
-
-
+        loss_dict = self.update_icm()
 
         self.buffer.clear()
+        
+        return loss_dict
 

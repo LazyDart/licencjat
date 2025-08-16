@@ -2,7 +2,7 @@
 num_train_steps: 1000000
 update_interval: 1000
 num_epochs: 100
-batch_size: 64
+batch_size: 1024
 gamma: 0.99
 eps_clip: 0.2
 action_std_init: 0.5
@@ -14,7 +14,7 @@ max_grad_norm: 0.5
 mode: "train"
 
 # network hparams
-agent: "ppo_icm"
+agent: "ppo"
 hidden_dim: 64
 activation: "tanh"
 lr_actor: 3.0e-4
@@ -27,13 +27,13 @@ icm_eta: 0.01
 intrinsic_coeff: 1
 
 # env hparams
-env_name: "CartPole-v1"
+env_name: "MiniGrid-LavaCrossingS9N1-v0"
 continuous_action_space: false
 max_eps_steps: 400
 random_seed: 42
 
 # logging hparams
-wandb_project: "ppo-experiments"
+wandb_project: "ppo-experiments-minigrid-lava"
 wandb_entity: "saqib1707"
 exp_name: ""
 # run_id: 1
@@ -46,5 +46,5 @@ ckpt_dir: "./checkpoints/"
 
 # evaluation hparams
 num_eval_eps: 100
-eval_ckpt_name: "CartPole-v1_step_500000.pt"
+eval_ckpt_name: "MiniGrid-1_step_500000.pt"
 render_mode: null
