@@ -1,0 +1,39 @@
+repos:
+  # Ruff: linter + formatter (pin to latest tag)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.9
+    hooks:
+      - id: ruff-check
+        args: [--fix, --silent]        # auto-fix lint issues when possible
+        files: ^src/
+      - id: ruff-format
+        args: [--silent]
+        files: ^src/
+
+  # mypy type-checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.17.1
+    hooks:
+      - id: mypy
+        # Helps mypy inside pre-commit's isolated env (optional but useful)
+        additional_dependencies:
+          - pandas-stubs==2.3.0.250703
+          - types-tqdm==4.67.0.20250809
+        # If you want to make sure it reads pyproject:
+        # args: ["--config-file=pyproject.toml"]
+        files: ^src/
+        args: [--hide-error-context, --hide-error-codes, --no-pretty]
+
+  # Handy general-purpose fixes (whitespace, EOLs, large files)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        files: ^src/
+      - id: trailing-whitespace
+        files: ^src/
+      - id: check-yaml
+        files: ^src/
+      - id: check-added-large-files
+        files: ^src/
+        args: ["--maxkb=2000"]   # don’t commit multi-MB checkpoints by accident

@@ -12,6 +12,7 @@ dependencies = [
     "minigrid>=3.0.0",
     "numpy>=2.1.2",
     "pandas>=2.3.1",
+    "pydantic>=2.11.7",
     "pygame>=2.6.1",
     "rllte-core>=1.0.1",
     "torch>=2.7.1",
@@ -25,3 +26,37 @@ dependencies = [
 [[tool.uv.index]] 
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu118"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.1",
+    "pre-commit>=4.3.0",
+    "ruff>=0.12.9",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+  "build", "dist", ".venv", ".eggs",
+  "wandb", "data", "checkpoints", "logs"
+]
+
+[tool.ruff.lint]
+select = ["E","F","I","B","UP","NPY","PL","RUF"]
+# Tweak ignores as your codebase evolves; this is a solid starting set.
+
+[tool.mypy]
+python_version = "3.13"
+warn_unused_ignores = true
+warn_return_any = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+follow_imports = "silent"
+ignore_missing_imports = true  # relaxes noise from heavy ML libs
+exclude = "(build|dist|\\.venv|wandb|data|checkpoints|logs)/"
+
+hide_error_codes = true     # don’t show [misc] etc. after errors
+hide_error_context = true   # no long context sections
+pretty = false              # concise one-line errors

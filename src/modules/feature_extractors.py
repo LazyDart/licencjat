@@ -1,11 +1,12 @@
 import torch
-import torch.nn as nn
+from torch import nn
+
 
 class MinigridFeaturesExtractor(nn.Module):
     def __init__(self, obs_dim: tuple[int, int, int], features_dim: int = 512) -> None:
         super().__init__()
         n_input_channels = obs_dim[2]
-      
+
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 16, (2, 2)),
             nn.ReLU(),

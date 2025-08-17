@@ -1,4 +1,3 @@
-
 class RolloutBuffer:
     def __init__(self):
         self.states = []
@@ -16,7 +15,7 @@ class RolloutBuffer:
         self.rewards.append(reward)
         self.state_values.append(state_value)
         self.dones.append(done)
-    
+
     def clear(self):
         self.states.clear()
         self.actions.clear()
@@ -38,4 +37,3 @@ class RolloutBufferNextState(RolloutBuffer):
     def clear(self):
         super().clear()
         self.next_states.clear()
-

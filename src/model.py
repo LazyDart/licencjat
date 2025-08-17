@@ -1,11 +1,11 @@
 import time
-import numpy as np
 
+import gymnasium as gym
+import numpy as np
 import torch
 from torch import nn
 from torch.distributions import MultivariateNormal
 from torch.optim import Adam
-import gymnasium as gym
 
 
 class FeedForwardNN(nn.Module):
@@ -17,7 +17,6 @@ class FeedForwardNN(nn.Module):
         self.layer3 = nn.Linear(hidden_size, out_dim)
         self.relu = nn.ReLU()
 
-    
     def forward(self, obs):
         # convert observation to tensor if it's a numpy array
         if isinstance(obs, np.ndarray):
@@ -31,14 +30,18 @@ class FeedForwardNN(nn.Module):
 
 class ProximalPolicyOptimization:
     def __init__(self, env, seed=43, lr=1e-3):
-        assert type(env.observation_space) == gym.spaces.Box, "This example only works for envs with continuous state spaces."
-        assert type(env.action_space) == gym.spaces.Box, "This example only works for envs with continuous action spaces."
+        assert type(env.observation_space) == gym.spaces.Box, (
+            "This example only works for envs with continuous state spaces."
+        )
+        assert type(env.action_space) == gym.spaces.Box, (
+            "This example only works for envs with continuous action spaces."
+        )
         self._set_seed(seed)
 
         # extract environment information
         self.env = env
-        self.obs_dim = env.observation_space.shape[0]    # = ns
-        self.act_dim = env.action_space.shape[0]    # = na
+        self.obs_dim = env.observation_space.shape[0]  # = ns
+        self.act_dim = env.action_space.shape[0]  # = na
         print(f"Observation Dimension: {self.obs_dim} | Action Dimension: {self.act_dim}")
 
         # initialize actor and critic networks
@@ -49,40 +52,52 @@ class ProximalPolicyOptimization:
         self.critic_optimizer = Adam(self.critic.parameters(), lr=lr, betas=(0.9, 0.999))
 
         # initialize action covariance matrix for exploration
-        self.act_cov = torch.diag(torch.full(size=(self.act_dim,), fill_value=0.5))    # (na,na)
+        self.act_cov = torch.diag(torch.full(size=(self.act_dim,), fill_value=0.5))  # (na,na)
         # print(self.action_cov_mat)
 
         # initialize logger
         self.logger = {
-            'delta_t': time.time_ns(),
-            't_so_far': 0,
-            'i_so_far': 0,
-            'batch_lens': [],
-            'batch_rewards': [],
-            'actor_losses': [],
+            "delta_t": time.time_ns(),
+            "t_so_far": 0,
+            "i_so_far": 0,
+            "batch_lens": [],
+            "batch_rewards": [],
+            "actor_losses": [],
         }
 
-
-    def learn(self, total_timesteps, timesteps_per_batch, max_eps_len, num_updates_per_itr, clip_thresh=0.2, save_every=1000, gamma=0.9):
-        t_so_far = 0    # timesteps simulated so far
+    def learn(
+        self,
+        total_timesteps,
+        timesteps_per_batch,
+        max_eps_len,
+        num_updates_per_itr,
+        clip_thresh=0.2,
+        save_every=1000,
+        gamma=0.9,
+    ):
+        t_so_far = 0  # timesteps simulated so far
         i_so_far = 0
 
         while t_so_far < total_timesteps:
             # roll out multiple trajectories
-            batch_obs, batch_actions, batch_logprobs, batch_reward_to_go, batch_eps_lens = self.collect_rollouts(
-                timesteps_per_batch, 
-                max_eps_len, 
-                gamma
+            batch_obs, batch_actions, batch_logprobs, batch_reward_to_go, batch_eps_lens = (
+                self.collect_rollouts(timesteps_per_batch, max_eps_len, gamma)
             )
-            print("stage-1:", batch_obs.shape, batch_actions.shape, batch_logprobs.shape, batch_reward_to_go.shape)
+            print(
+                "stage-1:",
+                batch_obs.shape,
+                batch_actions.shape,
+                batch_logprobs.shape,
+                batch_reward_to_go.shape,
+            )
 
             # calculate how many timesteps collected in this batch
             t_so_far += np.sum(batch_eps_lens)
             i_so_far += 1
 
             # logging timesteps and iterations so far
-            self.logger['t_so_far'] = t_so_far
-            self.logger['i_so_far'] = i_so_far
+            self.logger["t_so_far"] = t_so_far
+            self.logger["i_so_far"] = i_so_far
 
             # calculate value function V_{phi, k} using critic model
             V, _ = self.evaluate(batch_obs, batch_actions)
@@ -120,15 +135,14 @@ class ProximalPolicyOptimization:
                 critic_loss.backward()
                 self.critic_optimizer.step()
 
-                self.logger['actor_losses'].append(actor_loss.detach())
-            
+                self.logger["actor_losses"].append(actor_loss.detach())
+
             # print a summary of the training so far
             self._log_summary(total_timesteps)
 
             if i_so_far % save_every == 0:
-                torch.save(self.actor.state_dict(), './checkpoints/ppo_actor.pth')
-                torch.save(self.critic.state_dict(), './checkpoints/ppo_critic.pth')
-
+                torch.save(self.actor.state_dict(), "./checkpoints/ppo_actor.pth")
+                torch.save(self.critic.state_dict(), "./checkpoints/ppo_critic.pth")
 
     def evaluate(self, batch_obs, batch_actions):
         value = self.critic(batch_obs).squeeze()
@@ -142,7 +156,6 @@ class ProximalPolicyOptimization:
         logprob = dist.log_prob(batch_actions)
         # print("This would not be printed", dist)
         return value, logprob
-
 
     def collect_rollouts(self, max_timesteps, max_eps_len, gamma):
         observations = []
@@ -173,25 +186,26 @@ class ProximalPolicyOptimization:
                 obs = next_obs
                 if done:
                     break
-            
+
             # collect episode length and rewards
             rewards.append(eps_rewards)
-            eps_lens.append(step+1)
+            eps_lens.append(step + 1)
 
         # reshape numpy data as tensors
-        observations = torch.from_numpy(np.array(observations, dtype=np.float32))    # [max_timesteps, ns]
-        actions = torch.from_numpy(np.array(actions, dtype=np.float32))    # [max_timesteps, na]
+        observations = torch.from_numpy(
+            np.array(observations, dtype=np.float32)
+        )  # [max_timesteps, ns]
+        actions = torch.from_numpy(np.array(actions, dtype=np.float32))  # [max_timesteps, na]
         actions = actions.unsqueeze(1)
-        logprobs = torch.from_numpy(np.array(logprobs, dtype=np.float32))    # [max_timesteps]
+        logprobs = torch.from_numpy(np.array(logprobs, dtype=np.float32))  # [max_timesteps]
         rewards_to_go = self.compute_reward_to_go(rewards, gamma)
         # print("Stage-0:", np.array(batch_rewards).shape, batch_reward_to_go.shape)
         # batch_episode_lengths = torch.tensor(batch_episode_lengths, dtype=torch.float32)
 
         # log the episodic rewards and lengths
-        self.logger['batch_rewards'] = rewards
-        self.logger['batch_lengths'] = eps_lens
+        self.logger["batch_rewards"] = rewards
+        self.logger["batch_lengths"] = eps_lens
         return observations, actions, logprobs, rewards_to_go, eps_lens
-
 
     def compute_reward_to_go(self, rewards, gamma):
         """
@@ -210,7 +224,7 @@ class ProximalPolicyOptimization:
             reward_sum = 0
 
             for r in reversed(eps_rewards):
-                reward_sum = r + gamma * reward_sum    # discounted reward
+                reward_sum = r + gamma * reward_sum  # discounted reward
                 eps_rewards_to_go.append(reward_sum)
 
             eps_rewards_to_go = eps_rewards_to_go[::-1]
@@ -221,7 +235,6 @@ class ProximalPolicyOptimization:
         rewards_to_go = torch.flatten(torch.from_numpy(rewards_to_go))
 
         return rewards_to_go
-
 
     def estimate_action(self, obs):
         print("Stage-3:", obs)
@@ -237,7 +250,6 @@ class ProximalPolicyOptimization:
 
         return action.detach().numpy(), logprob.detach()
 
-
     def _set_seed(self, seed):
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -245,14 +257,19 @@ class ProximalPolicyOptimization:
             torch.cuda.manual_seed_all(seed)
         print(f"Successfully set seed everywhere: {seed}")
 
-
     def _log_summary(self, total_timesteps):
-        delta_t = self.logger['delta_t']
-        self.logger['delta_t'] = time.time_ns()
-        delta_t = round((self.logger['delta_t'] - delta_t) / 1e9, 4)
+        delta_t = self.logger["delta_t"]
+        self.logger["delta_t"] = time.time_ns()
+        delta_t = round((self.logger["delta_t"] - delta_t) / 1e9, 4)
 
-        avg_episode_lens = np.mean(self.logger['batch_lengths'])
-        avg_episode_rewards = round(np.mean([np.sum(ep_rewards) for ep_rewards in self.logger['batch_rewards']]), 4)
-        avg_actor_loss = round(np.mean([losses.mean() for losses in self.logger['actor_losses']]), 4)
+        avg_episode_lens = np.mean(self.logger["batch_lengths"])
+        avg_episode_rewards = round(
+            np.mean([np.sum(ep_rewards) for ep_rewards in self.logger["batch_rewards"]]), 4
+        )
+        avg_actor_loss = round(
+            np.mean([losses.mean() for losses in self.logger["actor_losses"]]), 4
+        )
 
-        print(f"{self.logger['t_so_far']}/{total_timesteps} | Avg Loss: {avg_actor_loss} | Avg Ep Len: {avg_episode_lens} | Avg Ep Reward: {avg_episode_rewards} | Itr {self.logger['i_so_far']} took {delta_t} s")
+        print(
+            f"{self.logger['t_so_far']}/{total_timesteps} | Avg Loss: {avg_actor_loss} | Avg Ep Len: {avg_episode_lens} | Avg Ep Reward: {avg_episode_rewards} | Itr {self.logger['i_so_far']} took {delta_t} s"
+        )
