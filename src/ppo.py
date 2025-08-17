@@ -66,19 +66,18 @@ class PPOAgent:
         )
 
     def compute_returns(self) -> torch.Tensor:
-        returns: list[float] = []
+        returns = torch.empty_like(self.buffer.rewards)
         discounted_reward: float = 0
 
-        for reward, done in zip(
-            reversed(self.buffer.rewards), reversed(self.buffer.dones), strict=False
+        for i, (reward, done) in enumerate(
+            zip(reversed(self.buffer.rewards), reversed(self.buffer.dones), strict=False), start=1
         ):
             if done:
                 discounted_reward = 0
             discounted_reward = reward + self.gamma * discounted_reward
-            returns.insert(0, discounted_reward)
+            returns[-i] = discounted_reward
 
-        returns = np.array(returns, dtype=np.float32)
-        returns = torch.flatten(torch.from_numpy(returns).float()).to(self.device)
+        returns = returns.to(self.device)
         return returns
 
     def _update_policy_with_batch(
@@ -91,26 +90,24 @@ class PPOAgent:
     ) -> dict[str, torch.Tensor]:
         # evaluate old actions and values
         state_values, logprobs, dist_entropy = self.policy.evaluate_actions(states, actions)
-        # print(logprobs.shape, batch_old_logprobs.shape)
 
         # Finding the ratio (pi_theta / pi_theta_old)
         ratios = torch.exp(logprobs - old_logprobs.squeeze(-1))
 
         # Finding Surrogate Loss
-        # print(ratios.shape, batch_advantages.shape)
+
         surr1 = ratios * advantages
         surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
 
         # final loss of clipped objective PPO
         actor_loss = -torch.min(surr1, surr2).mean()
-        # print(state_values.dtype, batch_rewards_to_go.dtype)
+
         critic_loss = 0.5 * self.mse_loss(state_values.squeeze(), rewards_to_go)
         loss = (
             actor_loss
             + self.value_loss_coef * critic_loss
             - self.entropy_coef * dist_entropy.mean()
         )
-        # print("Final loss:", actor_loss, critic_loss, dist_entropy, loss)
 
         # calculate gradients and backpropagate for actor network
         self.optimizer.zero_grad()
