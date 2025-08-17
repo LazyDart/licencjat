@@ -225,11 +225,23 @@ class PPOAgentICM(PPOAgent):
                 {"params": self.icm.next_state_pred_network.parameters(), "lr": lr_icm},
             ]
         )
-
+        assert self.buffer.next_states is not None, "Buffer next_state must be not None in ICM."
         self.buffer = buffer
 
-    def update_icm(self) -> None:
-        rewards_to_go = self.compute_returns()
+
+    def _update_icm_with_batch(self, batch_states, batch_next_states, batch_actions):
+        td = TensorDict(
+                    {
+                        "action": batch_actions.long(),
+                        "state": batch_states,
+                        "next_state": batch_next_states,
+                    }
+                )
+        icm_training_step(
+                    self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device
+                )
+
+    def update_weights(self) -> None:
 
         next_states = self.buffer.next_states.to(self.device)
         states = self.buffer.states.to(self.device)
@@ -237,6 +249,7 @@ class PPOAgentICM(PPOAgent):
         old_logprobs = self.buffer.logprobs.to(self.device)
         state_vals = self.buffer.state_values.to(self.device)
 
+        rewards_to_go = self.compute_returns()
         advantages = rewards_to_go - state_vals
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
@@ -262,18 +275,6 @@ class PPOAgentICM(PPOAgent):
                     rewards_to_go=batch_rewards_to_go,
                     advantages=batch_advantages,
                 )
-                td = TensorDict(
-                    {
-                        "action": batch_actions.long(),
-                        "state": batch_states,
-                        "next_state": batch_next_states,
-                    }
-                )
-                icm_training_step(
-                    self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device
-                )
-
-    def update_weights(self) -> None:
-        self.update_icm()
+                self._update_icm_with_batch(batch_states, batch_next_states, batch_actions)
 
         self.buffer.clear()
