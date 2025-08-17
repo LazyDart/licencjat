@@ -7,18 +7,16 @@ from typing import TypedDict
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-import gymnasium as gym
-import minigrid
 import numpy as np
 import torch
 import wandb
 from tensordict import TensorDict
 
 from src import utils
-from src.buffer import TensorRolloutBuffer
+from src.agent_factory import AgentFactory
 from src.config import Config
-from src.modules.feature_extractors import MinigridFeaturesExtractor
-from src.ppo import PPOAgent, PPOAgentICM
+from src.env_factory import EnvFactory
+from src.ppo import PPOAgentICM
 
 
 class MetricsDict(TypedDict):
@@ -33,125 +31,15 @@ class MetricsDict(TypedDict):
     eval_dt: float
 
 
-def make_agent(
-    obs_dim: tuple[int, ...],
-    action_dim: int,
-    config: Config,
-    device: str,
-) -> PPOAgent:
-    if "minigrid" in config.env_name.lower():
-        obs_dim = obs_dim
-        feature_extractor = MinigridFeaturesExtractor(obs_dim, config.hidden_dim)
-    else:
-        feature_extractor = None
-
-    store_next = config.agent == "ppo_icm"
-    horizon = config.update_interval  # PPO-style; could also be config.max_eps_steps
-    action_shape = (action_dim,) if config.continuous_action_space else None
-
-    buffer = TensorRolloutBuffer(
-        horizon=horizon,
-        obs_shape=obs_dim,
-        action_shape=action_shape,
-        discrete_actions=not config.continuous_action_space,
-        store_next_state=store_next,
-        pin_memory=True,
-    )
-
-    if config.agent.lower() == "ppo":
-        # initialize a PPO agent
-        ppo_agent = PPOAgent(
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            hidden_dim=config.hidden_dim,
-            lr_actor=config.lr_actor,
-            lr_critic=config.lr_critic,
-            buffer=buffer,
-            continuous_action_space=config.continuous_action_space,
-            num_epochs=config.num_epochs,
-            eps_clip=config.eps_clip,
-            action_std_init=config.action_std_init,
-            gamma=config.gamma,
-            entropy_coef=config.entropy_coef,
-            value_loss_coef=config.value_loss_coef,
-            batch_size=config.batch_size,
-            max_grad_norm=config.max_grad_norm,
-            device=device,
-            feature_extractor_override=feature_extractor,
-        )
-        return ppo_agent
-
-    elif config.agent.lower() == "ppo_icm":
-        assert (
-            isinstance(config.icm_beta, float)
-            and isinstance(config.icm_eta, float)
-            and isinstance(config.lr_icm, float)
-        ), "Missing required args!"
-
-        ppo_agent = PPOAgentICM(
-            obs_dim=obs_dim,
-            action_dim=action_dim,
-            hidden_dim=config.hidden_dim,
-            lr_actor=config.lr_actor,
-            lr_critic=config.lr_critic,
-            buffer=buffer,
-            continuous_action_space=config.continuous_action_space,
-            num_epochs=config.num_epochs,
-            eps_clip=config.eps_clip,
-            action_std_init=config.action_std_init,
-            gamma=config.gamma,
-            entropy_coef=config.entropy_coef,
-            value_loss_coef=config.value_loss_coef,
-            batch_size=config.batch_size,
-            max_grad_norm=config.max_grad_norm,
-            device=device,
-            icm_beta=config.icm_beta,
-            icm_eta=config.icm_eta,
-            lr_icm=config.lr_icm,
-            feature_extractor_override=feature_extractor,
-        )
-        return ppo_agent
-    else:
-        raise ValueError(f"Invalid agent name: {config.agent}")
-
-
-def create_env(env_name: str) -> gym.Env:
-    try:
-        env = gym.make(env_name)
-        if "minigrid" in env_name.lower():
-            env = minigrid.wrappers.ImgObsWrapper(env)
-    except:
-        raise ValueError(f"Invalid environment name: {env_name}")
-    return env
-
-
-def get_env_dims(env: gym.Env, config: Config) -> tuple[tuple[int, ...], int]:
-    """
-    Gets observation and action dimensions from environment.
-
-    Args:
-        env: Gym environment
-        config: Configuration object
-
-    Returns:
-        Tuple[int, int]: Observation dimension, Action dimension
-    """
-    try:
-        obs_dim = env.observation_space.shape
-        action_dim = (
-            env.action_space.shape[0] if config.continuous_action_space else env.action_space.n
-        )
-        logger.info(f"Observation Dimension: {obs_dim} | Action Dimension: {action_dim}")
-    except AttributeError as e:
-        raise ValueError(f"Invalid environment space configuration: {e}")
-    return obs_dim, action_dim
-
-
-def run_training(env: gym.Env, config: Config, device: str) -> None:
+def run_training(config: Config, device: str) -> None:
     start_time = time.time()
 
-    obs_dim, action_dim = get_env_dims(env, config)
-    ppo_agent = make_agent(obs_dim, action_dim, config, device)
+    env_factory = EnvFactory(config)
+    env, obs_dim, action_dim = env_factory.env_setup()
+    logger.info(f"Observation Dimension: {obs_dim} | Action Dimension: {action_dim}")
+
+    agent_factory = AgentFactory(obs_dim, action_dim, config, device)
+    ppo_agent = agent_factory.make_agent()
 
     running_eps_reward: float = 0
     running_eps_intrinsic_reward: float = 0
@@ -267,12 +155,13 @@ def run_training(env: gym.Env, config: Config, device: str) -> None:
         running_num_eps += 1
         eps_so_far += 1
 
+    env.close()
     wandb.finish()  # close wandb logging
     print(f"Training time: {(time.time() - start_time) / 60.0:.2f} mins")
 
 
 def run_evaluation(
-    env: gym.Env, config: Config, device: str, save_video: bool = False, verbose: bool = True
+    config: Config, device: str, save_video: bool = False, verbose: bool = True
 ) -> MetricsDict:
     """
     Evaluates a trained agent on the given environment
@@ -289,11 +178,12 @@ def run_evaluation(
         "total_steps": 0,
         "eval_dt": 0,
     }
+    env_factory = EnvFactory(config)
+    env, obs_dim, action_dim = env_factory.env_setup()
+    logger.info(f"Observation Dimension: {obs_dim} | Action Dimension: {action_dim}")
 
-    obs_dim, action_dim = get_env_dims(env, config)
-
-    # create agent
-    ppo_agent = make_agent(obs_dim, action_dim, config, device)
+    agent_factory = AgentFactory(obs_dim, action_dim, config, device)
+    ppo_agent = agent_factory.make_agent()
 
     # load model
     ckpt_path = os.path.join(config.ckpt_dir, config.eval_ckpt_name)
@@ -383,7 +273,6 @@ def main(config: Config) -> None:
 
     # create environment
     logger.info(f"Environment: {config.env_name}")
-    env = create_env(config.env_name)
 
     if config.random_seed:
         utils.set_random_seed(config.random_seed)
@@ -411,19 +300,18 @@ def main(config: Config) -> None:
         log_path = os.path.join(config.log_dir, "log.txt")
         logger.info(f"Logs saved at: {log_path}")
 
-        run_training(env, config, device)
+        run_training(config, device)
 
         # save config file for each run in log directory
         Config.save_config(config, os.path.join(config.log_dir, "config.yaml"))
 
     elif config.mode == "test":
-        run_evaluation(env, config, device, verbose=args.verbose)
+        run_evaluation(config, device, verbose=args.verbose)
 
     else:
         logger.error("Invalid mode. Mode should be either 'train' or 'test'.")
 
     print("Done!")
-    env.close()
 
 
 if __name__ == "__main__":

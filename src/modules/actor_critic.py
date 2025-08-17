@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 import torch
 from torch import nn
 from torch.distributions import Categorical, MultivariateNormal
@@ -8,34 +6,25 @@ from torch.distributions import Categorical, MultivariateNormal
 class ActorCritic(nn.Module):
     def __init__(
         self,
-        obs_dim: tuple[int, ...],
         action_dim: int,
         hidden_dim: int,
+        feature_extractor: nn.Module,
         continuous_action_space: bool = False,
         action_std_init: float = 0.0,
         device: str | torch.device = "cpu",
-        feature_extractor_override: nn.Module | None = None,
     ):
         super(ActorCritic, self).__init__()
         self.continuous_action_space = continuous_action_space
         self.device = device
 
-        # create shared feature extractor for both actor and critic
-        if feature_extractor_override is None:
-            self.feature_extractor = nn.Sequential(
-                nn.Linear(obs_dim[0], hidden_dim, dtype=torch.float32),
-                nn.Tanh(),
-                nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
-                nn.Tanh(),
-            ).to(device)
-        else:
-            self.feature_extractor = deepcopy(feature_extractor_override).to(device)
+        self.feature_extractor = feature_extractor
 
         if continuous_action_space:
             self.action_var = nn.Parameter(
                 torch.full(size=(action_dim,), fill_value=action_std_init * action_std_init)
             ).to(device)
             self.actor_head = nn.Linear(hidden_dim, action_dim, dtype=torch.float32).to(device)
+
         else:
             self.actor_head = nn.Sequential(
                 nn.Linear(hidden_dim, action_dim, dtype=torch.float32), nn.Softmax(dim=-1)

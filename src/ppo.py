@@ -19,6 +19,7 @@ class PPOAgent:
         lr_actor: float,
         lr_critic: float,
         buffer: TensorRolloutBuffer,
+        feature_extractor: nn.Module,
         continuous_action_space: bool = False,
         num_epochs: int = 10,
         eps_clip: float = 0.2,
@@ -29,7 +30,6 @@ class PPOAgent:
         batch_size: int = 64,
         max_grad_norm: float = 0.5,
         device: str | torch.device = "cpu",
-        feature_extractor_override: nn.Module | None = None,
     ) -> None:
         self.gamma = gamma
         self.num_epochs = num_epochs
@@ -45,13 +45,12 @@ class PPOAgent:
         self.device = device
 
         self.policy = ActorCritic(
-            obs_dim,
             action_dim,
             hidden_dim,
+            deepcopy(feature_extractor).to(device),
             continuous_action_space=continuous_action_space,
             action_std_init=action_std_init,
             device=device,
-            feature_extractor_override=feature_extractor_override,
         )
 
         self.buffer = buffer
@@ -166,6 +165,7 @@ class PPOAgentICM(PPOAgent):
         lr_critic: float,
         lr_icm: float,
         buffer: TensorRolloutBuffer,
+        feature_extractor: nn.Module,
         continuous_action_space: bool = False,
         num_epochs: int = 10,
         eps_clip: float = 0.2,
@@ -178,7 +178,6 @@ class PPOAgentICM(PPOAgent):
         icm_beta: float = 0.2,
         icm_eta: float = 0.01,
         device: str | torch.device = "cpu",
-        feature_extractor_override: nn.Module | None = None,
     ) -> None:
         continuous_action_space = False  # ICM does not support discountinous actions yet.
 
@@ -189,6 +188,7 @@ class PPOAgentICM(PPOAgent):
             lr_actor=lr_actor,
             lr_critic=lr_critic,
             buffer=buffer,
+            feature_extractor=feature_extractor,
             continuous_action_space=continuous_action_space,
             num_epochs=num_epochs,
             eps_clip=eps_clip,
@@ -199,21 +199,11 @@ class PPOAgentICM(PPOAgent):
             batch_size=batch_size,
             max_grad_norm=max_grad_norm,
             device=device,
-            feature_extractor_override=feature_extractor_override,
         )
-        if feature_extractor_override is None:
-            icm_head = nn.Sequential(
-                nn.Linear(obs_dim[0], hidden_dim, dtype=torch.float32),
-                nn.Tanh(),
-                nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
-                nn.Tanh(),
-            ).to(device)
-        else:
-            icm_head = deepcopy(feature_extractor_override).to(device)
 
         self.icm_beta = icm_beta
         self.icm_eta = icm_eta
-        self.icm = ICM(icm_head, action_dim, hidden_dim, hidden_dim).to(device)
+        self.icm = ICM(deepcopy(feature_extractor), action_dim, hidden_dim, hidden_dim).to(device)
 
         self.optimizer = torch.optim.Adam(
             [
@@ -225,24 +215,26 @@ class PPOAgentICM(PPOAgent):
                 {"params": self.icm.next_state_pred_network.parameters(), "lr": lr_icm},
             ]
         )
-        assert self.buffer.next_states is not None, "Buffer next_state must be not None in ICM."
         self.buffer = buffer
 
-
-    def _update_icm_with_batch(self, batch_states, batch_next_states, batch_actions):
+    def _update_icm_with_batch(
+        self,
+        batch_states: torch.Tensor,
+        batch_next_states: torch.Tensor,
+        batch_actions: torch.Tensor,
+    ) -> None:
         td = TensorDict(
-                    {
-                        "action": batch_actions.long(),
-                        "state": batch_states,
-                        "next_state": batch_next_states,
-                    }
-                )
+            {
+                "action": batch_actions.long(),
+                "state": batch_states,
+                "next_state": batch_next_states,
+            }
+        )
         icm_training_step(
-                    self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device
-                )
+            self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device
+        )
 
     def update_weights(self) -> None:
-
         next_states = self.buffer.next_states.to(self.device)
         states = self.buffer.states.to(self.device)
         actions = self.buffer.actions.to(self.device)

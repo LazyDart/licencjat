@@ -25,3 +25,16 @@ class MinigridFeaturesExtractor(nn.Module):
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return self.linear(self.cnn(observations.float().permute((0, 3, 1, 2))))
+
+
+class MLPFeatureExtractor(nn.Module):
+    def __init__(self, obs_dim: tuple[int, ...], features_dim: int = 512) -> None:
+        self.network = nn.Sequential(
+            nn.Linear(obs_dim[0], features_dim, dtype=torch.float32),
+            nn.Tanh(),
+            nn.Linear(features_dim, features_dim, dtype=torch.float32),
+            nn.Tanh(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.network(x)
