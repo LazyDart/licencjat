@@ -1,13 +1,6 @@
 
-from typing import Any
-
+from typing import Any, Tuple, Optional, Dict
 import torch
-
-# # Type aliases to keep things readable
-# StateT = Union[npt.NDArray[Any], torch.Tensor]
-# ActionT = Union[int, npt.NDArray[Any]]  # discrete int or continuous vector
-# LogProbT = Union[float, npt.NDArray[Any]]  # numpy scalar/array or float
-
 
 class RolloutBuffer:
     def __init__(self) -> None:
@@ -69,10 +62,6 @@ class RolloutBufferNextState(RolloutBuffer):
         self.next_states.clear()
 
 
-from typing import Tuple, Optional, Dict
-import torch
-
-
 class TensorRolloutBuffer:
     """
     Preallocated tensor buffer for fixed-horizon rollouts.
@@ -105,7 +94,7 @@ class TensorRolloutBuffer:
 
         self.logprobs    = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
         self.rewards     = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
-        self.state_values  = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
+        self.state_vals  = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
         self.dones       = torch.empty((self.H,), dtype=torch.bool,   pin_memory=pin_memory)
 
         self.next_states = None
@@ -117,6 +106,7 @@ class TensorRolloutBuffer:
 
     def store_transition(
         self,
+        *,
         state: torch.Tensor,          # [obs...], float32, CPU
         action: torch.Tensor,         # [] int64 (discrete) or [A] float32, CPU
         logprob: torch.Tensor,        # [] float32, CPU
@@ -129,14 +119,14 @@ class TensorRolloutBuffer:
         self.states[i].copy_(state.to(torch.float32))
         if self.discrete:
             # accept scalar tensor ([]) or shaped (), coerce to int64
-            self.actions[i] = action.to(torch.int16)
+            self.actions[i] = action.to(torch.int64)
         else:
             self.actions[i].copy_(action.to(torch.float32))
 
         # accept 0-D tensors or floats
         self.logprobs[i]   = float(logprob)
         self.rewards[i]    = float(reward)
-        self.state_values[i] = float(state_value)
+        self.state_vals[i] = float(state_value)
         self.dones[i]      = bool(done)
 
         if self.store_next:
@@ -162,7 +152,7 @@ class TensorRolloutBuffer:
             "action": self.actions[sl],
             "logprob": self.logprobs[sl],
             "reward": self.rewards[sl],
-            "value": self.state_values[sl],
+            "value": self.state_vals[sl],
             "done": self.dones[sl],
         }
         if self.store_next:
