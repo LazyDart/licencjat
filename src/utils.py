@@ -1,12 +1,13 @@
 import sys
 import random
-import numpy as np
-import torch
 import logging
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 from pathlib import Path
+
 import colorlog
+import numpy as np
+import torch
 
 
 def set_random_seed(seed: int) -> None:

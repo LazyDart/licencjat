@@ -13,10 +13,10 @@ import torch
 import wandb
 from tensordict import TensorDict
 
-import utils
-from config import Config
-from ppo import PPOAgent, PPOAgentICM
-from model import MinigridFeaturesExtractor
+import src.utils as utils
+from src.config import Config
+from src.ppo import PPOAgent, PPOAgentICM
+from src.modules.feature_extractors import MinigridFeaturesExtractor
 
 
 def make_agent(
