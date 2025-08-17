@@ -124,26 +124,15 @@ class PPOAgent:
         }
 
     def update_weights(self) -> None:
-        # print(len(self.buffer.rewards))
         rewards_to_go = self.compute_returns()
-        # print(len(rewards_to_go))
 
-        states = torch.from_numpy(np.array(self.buffer.states)).float().to(self.device)
-        actions = torch.from_numpy(np.array(self.buffer.actions)).float().to(self.device)
-        old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).float().to(self.device)
-        state_vals = torch.from_numpy(np.array(self.buffer.state_values)).float().to(self.device)
+        states = self.buffer.states.to(self.device)
+        actions = self.buffer.actions.to(self.device)
+        old_logprobs = self.buffer.logprobs.to(self.device)
+        state_vals = self.buffer.state_values.to(self.device)
 
-        # states = self.buffer.states.to(self.device)
-        # actions = self.buffer.actions.to(self.device)
-        # old_logprobs = self.buffer.logprobs.to(self.device)
-        # state_vals = self.buffer.state_values.to(self.device)
-        
-        # print('stage-0:', rewards_to_go.shape, state_vals.shape)
-        # print('stage-1:', rewards_to_go.device, state_vals.device)
         advantages = rewards_to_go - state_vals
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
-
-        # print(states.shape, actions.shape, old_logprobs.shape, state_vals.shape, advantages.shape, rewards_to_go.shape)
 
         for _ in range(self.num_epochs):
             # generate random indices for minibatch
@@ -243,28 +232,16 @@ class PPOAgentICM(PPOAgent):
         self.buffer = buffer
 
     def update_icm(self) -> None:
-        # print(len(self.buffer.rewards))
         rewards_to_go = self.compute_returns()
-        # print(len(rewards_to_go))
 
-        next_states = torch.from_numpy(np.array(self.buffer.next_states)).float().to(self.device)
-        states = torch.from_numpy(np.array(self.buffer.states)).float().to(self.device)
-        actions = torch.from_numpy(np.array(self.buffer.actions)).float().to(self.device)
-        old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).float().to(self.device)
-        state_vals = torch.from_numpy(np.array(self.buffer.state_values)).float().to(self.device)
+        next_states = self.buffer.next_states.to(self.device)
+        states = self.buffer.states.to(self.device)
+        actions = self.buffer.actions.to(self.device)
+        old_logprobs = self.buffer.logprobs.to(self.device)
+        state_vals = self.buffer.state_values.to(self.device)
 
-        # next_states = self.buffer.next_states.to(self.device)
-        # states = self.buffer.states.to(self.device)
-        # actions = self.buffer.actions.to(self.device)
-        # old_logprobs = self.buffer.logprobs.to(self.device)
-        # state_vals = self.buffer.state_values.to(self.device)
-
-        # print('stage-0:', rewards_to_go.shape, state_vals.shape)
-        # print('stage-1:', rewards_to_go.device, state_vals.device)
         advantages = rewards_to_go - state_vals
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
-
-        # print(states.shape, actions.shape, old_logprobs.shape, state_vals.shape, advantages.shape, rewards_to_go.shape)
 
         for _ in range(self.num_epochs):
             # generate random indices for minibatch

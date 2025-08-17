@@ -15,10 +15,11 @@ import wandb
 from tensordict import TensorDict
 
 from src import utils
+from src.buffer import TensorRolloutBuffer
 from src.config import Config
 from src.modules.feature_extractors import MinigridFeaturesExtractor
 from src.ppo import PPOAgent, PPOAgentICM
-from src.buffer import TensorRolloutBuffer, RolloutBuffer, RolloutBufferNextState
+
 
 class MetricsDict(TypedDict):
     eps_rewards: list[float]
@@ -44,19 +45,18 @@ def make_agent(
     else:
         feature_extractor = None
 
-    # store_next = config.agent == "ppo_icm"
-    # horizon = config.update_interval            # PPO-style; could also be config.max_eps_steps
-    # action_shape = (action_dim,) if config.continuous_action_space else None
+    store_next = config.agent == "ppo_icm"
+    horizon = config.update_interval  # PPO-style; could also be config.max_eps_steps
+    action_shape = (action_dim,) if config.continuous_action_space else None
 
-    # buffer = TensorRolloutBuffer(
-    #     horizon=horizon,
-    #     obs_shape=obs_dim,
-    #     action_shape=action_shape,
-    #     discrete_actions=not config.continuous_action_space,
-    #     store_next_state=store_next,
-    #     pin_memory=True,
-    # )
-    buffer = RolloutBuffer() if config.agent == "ppo" else RolloutBufferNextState()
+    buffer = TensorRolloutBuffer(
+        horizon=horizon,
+        obs_shape=obs_dim,
+        action_shape=action_shape,
+        discrete_actions=not config.continuous_action_space,
+        store_next_state=store_next,
+        pin_memory=True,
+    )
 
     if config.agent.lower() == "ppo":
         # initialize a PPO agent
@@ -175,7 +175,7 @@ def run_training(env: gym.Env, config: Config, device: str) -> None:
             action, logprob, value = ppo_agent.policy.select_action(obs)
             # print("Action:", action.shape, action.dtype, "Logprob:", logprob.shape, logprob.dtype, "Value:", value)
             next_obs, reward, done, _, info = env.step(action)
-            next_obs = torch.from_numpy(next_obs) 
+            next_obs = torch.from_numpy(next_obs)
 
             eps_reward += reward
             t_so_far += 1
@@ -195,20 +195,20 @@ def run_training(env: gym.Env, config: Config, device: str) -> None:
                 if isinstance(ppo_agent, PPOAgentICM):
                     td = TensorDict(
                         {
-                            "action": torch.tensor(ppo_agent.buffer.actions)
-                            .long()
-                            .to(device),
+                            "action": torch.tensor(ppo_agent.buffer.actions).long().to(device),
                             "state": torch.tensor(ppo_agent.buffer.states).to(device),
-                            "next_state": torch.tensor(ppo_agent.buffer.next_states).to(
-                                device
-                            ),
+                            "next_state": torch.tensor(ppo_agent.buffer.next_states).to(device),
                         }
                     )
                     with torch.no_grad():
                         _, pred_next_enc, next_state_enc = ppo_agent.icm(td)
-                        intrinsic_reward = ppo_agent.icm.calculate_intrinsic_reward(
-                            pred_next_enc, next_state_enc, ppo_agent.icm_eta
-                        ).detach().cpu()  # [T]
+                        intrinsic_reward = (
+                            ppo_agent.icm.calculate_intrinsic_reward(
+                                pred_next_enc, next_state_enc, ppo_agent.icm_eta
+                            )
+                            .detach()
+                            .cpu()
+                        )  # [T]
                         ppo_agent.buffer.rewards[: intrinsic_reward.shape[0]] += intrinsic_reward
                         eps_intrinsic_reward += float(intrinsic_reward.sum().item())
                 else:
@@ -277,7 +277,6 @@ def run_evaluation(
     """
     Evaluates a trained agent on the given environment
     """
-
 
     metrics: MetricsDict = {
         "eps_rewards": [],

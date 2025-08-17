@@ -1,6 +1,5 @@
 from copy import deepcopy
 
-import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical, MultivariateNormal
@@ -60,7 +59,7 @@ class ActorCritic(nn.Module):
                 action_cov = torch.diag(self.action_var)
                 dist = MultivariateNormal(action_out, action_cov)
             else:
-                dist = Categorical(logits=action_out)
+                dist = Categorical(action_out)
 
             sampled = dist.sample()  # [1, A] or [1]
             logprob = dist.log_prob(sampled)  # [1] or [1]
