@@ -33,10 +33,10 @@ def set_device() -> torch.device:
 
 def setup_logging(
     verbose: bool = True,
-    log_dir: str | None = None,
+    log_dir: Path | None = None,
     max_file_size: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
-):
+) -> logging.Logger:
     """
     Sets up advanced logging configuration with colored console output and rotating file logs.
 

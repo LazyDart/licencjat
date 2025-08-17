@@ -20,6 +20,7 @@ dependencies = [
     "torchrl>=0.8.1",
     "torchvision>=0.22.1",
     "tqdm>=4.66.5",
+    "types-pyyaml>=6.0.12.20250809",
     "wandb>=0.21.0",
 ]
 
@@ -58,5 +59,4 @@ ignore_missing_imports = true  # relaxes noise from heavy ML libs
 exclude = "(build|dist|\\.venv|wandb|data|checkpoints|logs)/"
 
 hide_error_codes = true     # don’t show [misc] etc. after errors
-hide_error_context = true   # no long context sections
 pretty = false              # concise one-line errors

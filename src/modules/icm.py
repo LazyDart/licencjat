@@ -47,32 +47,36 @@ class ICM(nn.Module):
 
         self.inv_loss_cross_entropy: nn.CrossEntropyLoss = nn.CrossEntropyLoss()
 
-    def encode(self, x):
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
         # Basic encoding of the state_t
         return self.head(x)
 
-    def forward_dynamic_model(self, encoded_state, action):
+    def forward_dynamic_model(
+        self, encoded_state: torch.Tensor, action: torch.Tensor
+    ) -> torch.Tensor:
         action_onehot = F.one_hot(action, self.action_space)
         state_action_pair = torch.cat((encoded_state, action_onehot), dim=1)
         return self.next_state_pred_network(state_action_pair)
 
-    def forward_dynamics_loss(self, predicted_next_state, encoded_next_state):
+    def forward_dynamics_loss(
+        self, predicted_next_state: torch.Tensor, encoded_next_state: torch.Tensor
+    ) -> torch.Tensor:
         return F.mse_loss(predicted_next_state, encoded_next_state)
 
-    def inverse_model(self, enc_state, enc_next_state):
+    def inverse_model(self, enc_state: torch.Tensor, enc_next_state: torch.Tensor) -> torch.Tensor:
         """Should return action logits"""
 
         concatenated_states = torch.cat((enc_state, enc_next_state), dim=1)
         logits = self.inverse_model_network(concatenated_states)
         return logits
 
-    def inverse_loss(self, logits, action_indx):
+    def inverse_loss(self, logits: torch.Tensor, action_indx: torch.Tensor) -> torch.Tensor:
         return self.inv_loss_cross_entropy(logits, action_indx)
 
-    def inverse_action_probabilties(self, logits):
+    def inverse_action_probabilties(self, logits: torch.Tensor) -> torch.Tensor:
         return F.softmax(logits, dim=-1)
 
-    def forward(self, x: TensorDict):
+    def forward(self, x: TensorDict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         action = x["action"]
         encoded_state = self.encode(x["state"])
         encoded_next_state = self.encode(x["next_state"])
@@ -83,7 +87,9 @@ class ICM(nn.Module):
 
         return inverse_model_logits, pred_next_state, encoded_next_state
 
-    def calculate_intrinsic_reward(self, pred_next_enc, next_state_enc, eta):
+    def calculate_intrinsic_reward(
+        self, pred_next_enc: torch.Tensor, next_state_enc: torch.Tensor, eta: float
+    ) -> torch.Tensor:
         with torch.no_grad():
             return eta * 0.5 * ((pred_next_enc - next_state_enc) ** 2).sum(dim=1)
 
@@ -94,8 +100,8 @@ def icm_training_step(
     td: TensorDict,
     beta: float = 0.2,
     eta: float = 0.01,
-    device="cuda:0",
-):
+    device: str | torch.device = "cuda:0",
+) -> dict[str, torch.Tensor]:
     optimizer.zero_grad()
 
     icm = icm.to(device)

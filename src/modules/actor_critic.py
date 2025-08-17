@@ -9,13 +9,13 @@ from torch.distributions import Categorical, MultivariateNormal
 class ActorCritic(nn.Module):
     def __init__(
         self,
-        obs_dim,
-        action_dim,
-        hidden_dim,
-        continuous_action_space=False,
-        action_std_init=0.0,
-        device="cpu",
-        feature_extractor_override: nn.Module = None,
+        obs_dim: tuple[int, ...],
+        action_dim: int,
+        hidden_dim: int,
+        continuous_action_space: bool = False,
+        action_std_init: float = 0.0,
+        device: str | torch.device = "cpu",
+        feature_extractor_override: nn.Module | None = None,
     ):
         super(ActorCritic, self).__init__()
         self.continuous_action_space = continuous_action_space
@@ -24,7 +24,7 @@ class ActorCritic(nn.Module):
         # create shared feature extractor for both actor and critic
         if feature_extractor_override is None:
             self.feature_extractor = nn.Sequential(
-                nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
+                nn.Linear(obs_dim[0], hidden_dim, dtype=torch.float32),
                 nn.Tanh(),
                 nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
                 nn.Tanh(),
@@ -44,45 +44,40 @@ class ActorCritic(nn.Module):
 
         self.critic_head = nn.Linear(hidden_dim, 1).to(device)
 
-    def forward(self, obs):
+    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         features = self.feature_extractor(obs)
         actor_out = self.actor_head(features)
         critic_out = self.critic_head(features)
         return actor_out, critic_out
 
-    def select_action(self, obs):
-        if isinstance(obs, np.ndarray):
-            obs = torch.tensor(obs, dtype=torch.float32).to(self.device)
+    def select_action(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Ensure tensor, float32, and add batch dim
+        obs = obs.to(torch.float32).unsqueeze(0).to(self.device)
 
-        # print("Observation dim:", obs.dim())
-        obs = obs.unsqueeze(0)  # add batch dimension if missing
-
-        # to prevent unnecessary gradient computation
         with torch.no_grad():
-            action_out, value = self.forward(obs)
-            # print('stage-0:', action_out.shape, value, obs.shape)
-
+            action_out, value = self.forward(obs)  # action_out: logits or means
             if self.continuous_action_space:
-                action_cov = torch.diag(self.action_var)  # (na, na)
-                # print('stage-1:', action_out.shape, action_cov.shape)
+                action_cov = torch.diag(self.action_var)
                 dist = MultivariateNormal(action_out, action_cov)
             else:
-                # print(action_out.shape)
-                dist = Categorical(action_out)
+                dist = Categorical(logits=action_out)
 
-            action = dist.sample()
-            action_logprob = dist.log_prob(action)
+            sampled = dist.sample()  # [1, A] or [1]
+            logprob = dist.log_prob(sampled)  # [1] or [1]
 
-            if self.continuous_action_space:
-                if action.dim() == 2 and action.shape[0] == 1:
-                    action = action.squeeze(0).cpu().numpy()
-            else:
-                # action = torch.clamp(action, -1.0, 1.0)
-                action = action.item()
+        # Squeeze batch, move to CPU for the buffer
+        if self.continuous_action_space:
+            act_tensor = sampled.squeeze(0).to("cpu").to(torch.float32)  # [A]
+            # env_action = act_tensor.numpy()                                  # np.ndarray for env
+        else:
+            act_tensor = sampled.squeeze(0).to("cpu").to(torch.int64)  # [] int64
+            # env_action = int(act_tensor.item())                              # int for env
 
-        return action, action_logprob.cpu().numpy(), value.item()
+        return act_tensor, logprob.squeeze(0).to("cpu"), value.squeeze(0).to("cpu")
 
-    def evaluate_actions(self, states, actions):
+    def evaluate_actions(
+        self, states: torch.Tensor, actions: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         action_out, values = self.forward(states)
 
         if self.continuous_action_space:

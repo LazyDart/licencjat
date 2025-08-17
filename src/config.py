@@ -136,7 +136,7 @@ class Config(BaseModel):
             data["log_dir"] = Path(data["log_dir"])
         if "ckpt_dir" in data:
             data["ckpt_dir"] = Path(data["ckpt_dir"])
-        return cls.model_validate(data)
+        return Config(**data)
 
     def save_yaml(self, path: str | Path) -> None:
         def _to_serializable(obj: Any) -> Any:

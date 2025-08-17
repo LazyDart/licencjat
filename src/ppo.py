@@ -5,7 +5,7 @@ import torch
 from tensordict import TensorDict
 from torch import nn
 
-from src.buffer import RolloutBuffer, RolloutBufferNextState
+from src.buffer import TensorRolloutBuffer
 from src.modules.actor_critic import ActorCritic
 from src.modules.icm import ICM, icm_training_step
 
@@ -13,23 +13,24 @@ from src.modules.icm import ICM, icm_training_step
 class PPOAgent:
     def __init__(
         self,
-        obs_dim,
-        action_dim,
-        hidden_dim,
-        lr_actor,
-        lr_critic,
-        continuous_action_space=False,
-        num_epochs=10,
-        eps_clip=0.2,
-        action_std_init=0.6,
-        gamma=0.99,
-        entropy_coef=0.01,
-        value_loss_coef=0.5,
-        batch_size=64,
-        max_grad_norm=0.5,
-        device="cpu",
-        feature_extractor_override=None,
-    ):
+        obs_dim: tuple[int, ...],
+        action_dim: int,
+        hidden_dim: int,
+        lr_actor: float,
+        lr_critic: float,
+        buffer: TensorRolloutBuffer,
+        continuous_action_space: bool = False,
+        num_epochs: int = 10,
+        eps_clip: float = 0.2,
+        action_std_init: float = 0.6,
+        gamma: float = 0.99,
+        entropy_coef: float = 0.01,
+        value_loss_coef: float = 0.5,
+        batch_size: int = 64,
+        max_grad_norm: float = 0.5,
+        device: str | torch.device = "cpu",
+        feature_extractor_override: nn.Module | None = None,
+    ) -> None:
         self.gamma = gamma
         self.num_epochs = num_epochs
         self.batch_size = batch_size
@@ -53,7 +54,7 @@ class PPOAgent:
             feature_extractor_override=feature_extractor_override,
         )
 
-        self.buffer = RolloutBuffer()
+        self.buffer = buffer
         self.mse_loss = nn.MSELoss()  # Initialize MSE loss
 
         self.optimizer = torch.optim.Adam(
@@ -64,9 +65,9 @@ class PPOAgent:
             ]
         )
 
-    def compute_returns(self):
-        returns = []
-        discounted_reward = 0
+    def compute_returns(self) -> torch.Tensor:
+        returns: list[float] = []
+        discounted_reward: float = 0
 
         for reward, done in zip(
             reversed(self.buffer.rewards), reversed(self.buffer.dones), strict=False
@@ -80,7 +81,14 @@ class PPOAgent:
         returns = torch.flatten(torch.from_numpy(returns).float()).to(self.device)
         return returns
 
-    def _update_policy_with_batch(self, states, actions, old_logprobs, rewards_to_go, advantages):
+    def _update_policy_with_batch(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        old_logprobs: torch.Tensor,
+        rewards_to_go: torch.Tensor,
+        advantages: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
         # evaluate old actions and values
         state_values, logprobs, dist_entropy = self.policy.evaluate_actions(states, actions)
         # print(logprobs.shape, batch_old_logprobs.shape)
@@ -110,12 +118,12 @@ class PPOAgent:
         self.optimizer.step()
 
         return {
-            "policy_loss": loss,
-            "actor_loss": actor_loss,
-            "critic_loss": critic_loss,
+            "policy_loss": loss.item(),
+            "actor_loss": actor_loss.item(),
+            "critic_loss": critic_loss.item(),
         }
 
-    def update_weights(self):
+    def update_weights(self) -> None:
         # print(len(self.buffer.rewards))
         rewards_to_go = self.compute_returns()
         # print(len(rewards_to_go))
@@ -125,6 +133,11 @@ class PPOAgent:
         old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).float().to(self.device)
         state_vals = torch.from_numpy(np.array(self.buffer.state_values)).float().to(self.device)
 
+        # states = self.buffer.states.to(self.device)
+        # actions = self.buffer.actions.to(self.device)
+        # old_logprobs = self.buffer.logprobs.to(self.device)
+        # state_vals = self.buffer.state_values.to(self.device)
+        
         # print('stage-0:', rewards_to_go.shape, state_vals.shape)
         # print('stage-1:', rewards_to_go.device, state_vals.device)
         advantages = rewards_to_go - state_vals
@@ -160,26 +173,27 @@ class PPOAgent:
 class PPOAgentICM(PPOAgent):
     def __init__(
         self,
-        obs_dim,
-        action_dim,
-        hidden_dim,
-        lr_actor,
-        lr_critic,
-        lr_icm,
-        continuous_action_space=False,
-        num_epochs=10,
-        eps_clip=0.2,
-        action_std_init=0.6,
-        gamma=0.99,
-        entropy_coef=0.01,
-        value_loss_coef=0.5,
-        batch_size=64,
-        max_grad_norm=0.5,
-        icm_beta=0.2,
-        icm_eta=0.01,
-        device="cpu",
-        feature_extractor_override=None,
-    ):
+        obs_dim: tuple[int, ...],
+        action_dim: int,
+        hidden_dim: int,
+        lr_actor: float,
+        lr_critic: float,
+        lr_icm: float,
+        buffer: TensorRolloutBuffer,
+        continuous_action_space: bool = False,
+        num_epochs: int = 10,
+        eps_clip: float = 0.2,
+        action_std_init: float = 0.6,
+        gamma: float = 0.99,
+        entropy_coef: float = 0.01,
+        value_loss_coef: float = 0.5,
+        batch_size: int = 64,
+        max_grad_norm: float = 0.5,
+        icm_beta: float = 0.2,
+        icm_eta: float = 0.01,
+        device: str | torch.device = "cpu",
+        feature_extractor_override: nn.Module | None = None,
+    ) -> None:
         continuous_action_space = False  # ICM does not support discountinous actions yet.
 
         super().__init__(
@@ -188,6 +202,7 @@ class PPOAgentICM(PPOAgent):
             hidden_dim=hidden_dim,
             lr_actor=lr_actor,
             lr_critic=lr_critic,
+            buffer=buffer,
             continuous_action_space=continuous_action_space,
             num_epochs=num_epochs,
             eps_clip=eps_clip,
@@ -202,7 +217,7 @@ class PPOAgentICM(PPOAgent):
         )
         if feature_extractor_override is None:
             icm_head = nn.Sequential(
-                nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
+                nn.Linear(obs_dim[0], hidden_dim, dtype=torch.float32),
                 nn.Tanh(),
                 nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
                 nn.Tanh(),
@@ -225,9 +240,9 @@ class PPOAgentICM(PPOAgent):
             ]
         )
 
-        self.buffer = RolloutBufferNextState()
+        self.buffer = buffer
 
-    def update_icm(self):
+    def update_icm(self) -> None:
         # print(len(self.buffer.rewards))
         rewards_to_go = self.compute_returns()
         # print(len(rewards_to_go))
@@ -237,6 +252,12 @@ class PPOAgentICM(PPOAgent):
         actions = torch.from_numpy(np.array(self.buffer.actions)).float().to(self.device)
         old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).float().to(self.device)
         state_vals = torch.from_numpy(np.array(self.buffer.state_values)).float().to(self.device)
+
+        # next_states = self.buffer.next_states.to(self.device)
+        # states = self.buffer.states.to(self.device)
+        # actions = self.buffer.actions.to(self.device)
+        # old_logprobs = self.buffer.logprobs.to(self.device)
+        # state_vals = self.buffer.state_values.to(self.device)
 
         # print('stage-0:', rewards_to_go.shape, state_vals.shape)
         # print('stage-1:', rewards_to_go.device, state_vals.device)
@@ -260,7 +281,7 @@ class PPOAgentICM(PPOAgent):
                 batch_advantages = advantages[batch_indices]
                 batch_rewards_to_go = rewards_to_go[batch_indices]
 
-                policy_loss_values = self._update_policy_with_batch(
+                self._update_policy_with_batch(
                     states=batch_states,
                     actions=batch_actions,
                     old_logprobs=batch_old_logprobs,
@@ -274,13 +295,11 @@ class PPOAgentICM(PPOAgent):
                         "next_state": batch_next_states,
                     }
                 )
-                icm_loss_values = icm_training_step(
+                icm_training_step(
                     self.icm, self.optimizer, td, self.icm_beta, self.icm_eta, device=self.device
                 )
 
-    def update_weights(self):
-        loss_dict = self.update_icm()
+    def update_weights(self) -> None:
+        self.update_icm()
 
         self.buffer.clear()
-
-        return loss_dict

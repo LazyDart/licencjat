@@ -534,6 +534,7 @@ dependencies = [
     { name = "torchrl" },
     { name = "torchvision" },
     { name = "tqdm" },
+    { name = "types-pyyaml" },
     { name = "wandb" },
 ]
 
@@ -561,6 +562,7 @@ requires-dist = [
     { name = "torchrl", specifier = ">=0.8.1" },
     { name = "torchvision", specifier = ">=0.22.1" },
     { name = "tqdm", specifier = ">=4.66.5" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250809" },
     { name = "wandb", specifier = ">=0.21.0" },
 ]
 
@@ -1795,6 +1797,15 @@ wheels = [
     { url = "https://download.pytorch.org/whl/triton-3.3.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" },
     { url = "https://download.pytorch.org/whl/triton-3.3.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" },
     { url = "https://download.pytorch.org/whl/triton-3.3.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20250809"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/21/52ffdbddea3c826bc2758d811ccd7f766912de009c5cf096bd5ebba44680/types_pyyaml-6.0.12.20250809.tar.gz", hash = "sha256:af4a1aca028f18e75297da2ee0da465f799627370d74073e96fee876524f61b5", size = 17385, upload-time = "2025-08-09T03:14:34.867Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/3e/0346d09d6e338401ebf406f12eaf9d0b54b315b86f1ec29e34f1a0aedae9/types_pyyaml-6.0.12.20250809-py3-none-any.whl", hash = "sha256:032b6003b798e7de1a1ddfeefee32fac6486bdfe4845e0ae0e7fb3ee4512b52f", size = 20277, upload-time = "2025-08-09T03:14:34.055Z" },
 ]
 
 [[package]]
