@@ -1,6 +1,7 @@
+from typing import Any
 
-from typing import Any, Tuple, Optional, Dict
 import torch
+
 
 class RolloutBuffer:
     def __init__(self) -> None:
@@ -71,11 +72,12 @@ class TensorRolloutBuffer:
       - logprobs, rewards, values: float32
       - dones: bool
     """
+
     def __init__(
         self,
         horizon: int,
-        obs_shape: Tuple[int, ...],
-        action_shape: Optional[Tuple[int, ...]],
+        obs_shape: tuple[int, ...],
+        action_shape: tuple[int, ...] | None,
         *,
         discrete_actions: bool,
         store_next_state: bool = False,
@@ -85,35 +87,40 @@ class TensorRolloutBuffer:
         self.discrete = bool(discrete_actions)
         self.store_next = bool(store_next_state)
 
-        self.states      = torch.empty((self.H, *obs_shape), dtype=torch.float32, pin_memory=pin_memory)
+        self.states = torch.empty((self.H, *obs_shape), dtype=torch.float32, pin_memory=pin_memory)
         if self.discrete:
             self.actions = torch.empty((self.H,), dtype=torch.int64, pin_memory=pin_memory)
         else:
-            assert action_shape is not None and len(action_shape) == 1, "continuous action must be 1D"
-            self.actions = torch.empty((self.H, action_shape[0]), dtype=torch.float32, pin_memory=pin_memory)
+            assert action_shape is not None and len(action_shape) == 1, (
+                "continuous action must be 1D"
+            )
+            self.actions = torch.empty(
+                (self.H, action_shape[0]), dtype=torch.float32, pin_memory=pin_memory
+            )
 
-        self.logprobs    = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
-        self.rewards     = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
-        self.state_vals  = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
-        self.dones       = torch.empty((self.H,), dtype=torch.bool,   pin_memory=pin_memory)
+        self.logprobs = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
+        self.rewards = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
+        self.state_values = torch.empty((self.H,), dtype=torch.float32, pin_memory=pin_memory)
+        self.dones = torch.empty((self.H,), dtype=torch.bool, pin_memory=pin_memory)
 
         self.next_states = None
         if self.store_next:
-            self.next_states = torch.empty((self.H, *obs_shape), dtype=torch.float32, pin_memory=pin_memory)
+            self.next_states = torch.empty(
+                (self.H, *obs_shape), dtype=torch.float32, pin_memory=pin_memory
+            )
 
-        self.idx = 0   # write pointer
+        self.idx = 0  # write pointer
         self.full = False
 
     def store_transition(
         self,
-        *,
-        state: torch.Tensor,          # [obs...], float32, CPU
-        action: torch.Tensor,         # [] int64 (discrete) or [A] float32, CPU
-        logprob: torch.Tensor,        # [] float32, CPU
+        state: torch.Tensor,  # [obs...], float32, CPU
+        action: torch.Tensor,  # [] int64 (discrete) or [A] float32, CPU
+        logprob: torch.Tensor,  # [] float32, CPU
         reward: float,
         done: bool,
-        state_value: torch.Tensor,    # [] float32, CPU
-        next_state: Optional[torch.Tensor] = None,
+        state_value: torch.Tensor,  # [] float32, CPU
+        next_state: torch.Tensor | None = None,
     ) -> None:
         i = self.idx
         self.states[i].copy_(state.to(torch.float32))
@@ -124,10 +131,10 @@ class TensorRolloutBuffer:
             self.actions[i].copy_(action.to(torch.float32))
 
         # accept 0-D tensors or floats
-        self.logprobs[i]   = float(logprob)
-        self.rewards[i]    = float(reward)
-        self.state_vals[i] = float(state_value)
-        self.dones[i]      = bool(done)
+        self.logprobs[i] = float(logprob)
+        self.rewards[i] = float(reward)
+        self.state_values[i] = float(state_value)
+        self.dones[i] = bool(done)
 
         if self.store_next:
             assert self.next_states is not None
@@ -140,7 +147,7 @@ class TensorRolloutBuffer:
             self.idx = 0
             self.full = True
 
-    def batch(self, n_valid: Optional[int] = None) -> Dict[str, torch.Tensor]:
+    def batch(self, n_valid: int | None = None) -> dict[str, torch.Tensor]:
         """
         Returns a view (no copy) of the first n_valid rows.
         If n_valid is None: use H when full, else current idx.
@@ -152,7 +159,7 @@ class TensorRolloutBuffer:
             "action": self.actions[sl],
             "logprob": self.logprobs[sl],
             "reward": self.rewards[sl],
-            "value": self.state_vals[sl],
+            "value": self.state_values[sl],
             "done": self.dones[sl],
         }
         if self.store_next:

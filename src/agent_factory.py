@@ -20,7 +20,7 @@ class AgentFactory:
         self.device = device
 
     def _make_feature_extractor(self) -> nn.Module:
-        if "minigrid" in self.config.env_name.lower():
+        if "minigrid" in self.config.env_name.lower() or "babyai" in self.config.env_name.lower():
             feature_extractor = MinigridFeaturesExtractor(self.obs_dim, self.config.hidden_dim)
         else:
             feature_extractor = MLPFeatureExtractor(self.obs_dim, self.config.hidden_dim)

@@ -21,7 +21,7 @@ class Config(BaseModel):
     entropy_coef: float
     value_loss_coef: float
     max_grad_norm: float
-    mode: Literal["train", "eval", "inference"]
+    mode: Literal["train", "test", "inference"]
 
     # --- network hparams (all required except ICM group) ---
     agent: Literal["ppo", "ppo_icm"]
@@ -50,6 +50,8 @@ class Config(BaseModel):
     save_interval: int
     log_dir: Path
     ckpt_dir: Path
+    record_video: bool
+    record_interval: int
 
     # --- evaluation hparams ---
     num_eval_eps: int
