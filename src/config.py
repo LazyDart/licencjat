@@ -35,6 +35,7 @@ class Config(BaseModel):
     icm_beta: float | None = None
     icm_eta: float | None = None
     intrinsic_coeff: float | None = None
+    icm_skip_interval: int | None = None
 
     # --- env hparams (all required) ---
     env_name: str

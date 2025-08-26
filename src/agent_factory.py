@@ -97,6 +97,7 @@ class AgentFactory:
             icm_beta=self.config.icm_beta,
             icm_eta=self.config.icm_eta,
             lr_icm=self.config.lr_icm,
+            icm_skip_interval=self.config.icm_skip_interval
         )
         return ppo_agent
 
