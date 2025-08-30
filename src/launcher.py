@@ -16,7 +16,7 @@ from src import utils
 from src.agent_factory import AgentFactory
 from src.config import Config
 from src.env_factory import EnvFactory
-from src.ppo import PPOAgentICM
+from src.ppo import PPOAgentICM, PPOAgentRND
 
 np.random.seed(seed=42)
 
@@ -75,7 +75,7 @@ def run_training(config: Config, device: str) -> None:
             # store transitions in buffer
             if config.agent == "ppo":
                 ppo_agent.buffer.store_transition(obs, action, logprob, reward, done, value)
-            elif isinstance(ppo_agent, PPOAgentICM):
+            elif isinstance(ppo_agent, PPOAgentICM) or isinstance(ppo_agent, PPOAgentRND):
                 ppo_agent.buffer.store_transition(
                     obs, action, logprob, reward, done, value, next_state=next_obs
                 )
@@ -83,7 +83,7 @@ def run_training(config: Config, device: str) -> None:
                 raise NotImplementedError("Other agent not implemented")
 
             if t_so_far % config.update_interval == 0:
-                if isinstance(ppo_agent, PPOAgentICM):
+                if isinstance(ppo_agent, PPOAgentICM) or isinstance(ppo_agent, PPOAgentRND):
                     td = TensorDict(
                         {
                             "action": torch.tensor(ppo_agent.buffer.actions).long().to(device),
@@ -92,10 +92,10 @@ def run_training(config: Config, device: str) -> None:
                         }
                     )
                     with torch.no_grad():
-                        _, pred_next_enc, next_state_enc = ppo_agent.icm(td)
+                        _, pred_next_enc, next_state_enc = ppo_agent.int_rew_model(td)
                         intrinsic_reward = (
-                            ppo_agent.icm.calculate_intrinsic_reward(
-                                pred_next_enc, next_state_enc, ppo_agent.icm_eta
+                            ppo_agent.int_rew_model.calculate_intrinsic_reward(
+                                pred_next_enc, next_state_enc, ppo_agent.int_rew_eta
                             )
                             .detach()
                             .cpu()
@@ -105,11 +105,8 @@ def run_training(config: Config, device: str) -> None:
                 else:
                     intrinsic_reward = 0
 
-                if (
-                    config.icm_freeze_threshold is not None
-                    and t_so_far < config.icm_freeze_threshold
-                ):
-                    ppo_agent.stop_icm_updates = True
+                if config.freeze_threshold is not None and t_so_far < config.freeze_threshold:
+                    ppo_agent.stop_updates = True
 
                 ppo_agent.update_weights()
 
@@ -148,11 +145,11 @@ def run_training(config: Config, device: str) -> None:
                     config.ckpt_dir, f"{config.env_name}_policy_step_{t_so_far}.pt"
                 )
                 torch.save(ppo_agent.policy.state_dict(), checkpoint_path_policy)
-                if isinstance(ppo_agent, PPOAgentICM):
+                if isinstance(ppo_agent, PPOAgentICM) or isinstance(ppo_agent, PPOAgentRND):
                     checkpoint_path_icm = os.path.join(
-                        config.ckpt_dir, f"{config.env_name}_icm_step_{t_so_far}.pt"
+                        config.ckpt_dir, f"{config.env_name}_intrinsic_model_step_{t_so_far}.pt"
                     )
-                    torch.save(ppo_agent.icm.state_dict(), checkpoint_path_icm)
+                    torch.save(ppo_agent.int_rew_model.state_dict(), checkpoint_path_icm)
 
             obs = next_obs
             if done:
@@ -235,7 +232,7 @@ def run_evaluation(
         if isinstance(ppo_agent, PPOAgentICM):
             ckpt_icm_path = "/home/lazydart/Python Codes/licencjat/logs/BabyAI-FindObjS7-v0/runs/run_20250823T131905/checkpoints/BabyAI-FindObjS7-v0_icm_step_400000.pt"
             ckpt = torch.load(ckpt_icm_path, map_location=device)
-            ppo_agent.icm.load_state_dict(ckpt)
+            ppo_agent.int_rew_model.load_state_dict(ckpt)
         logger.info(f"Successfully loaded checkpoint from {ckpt_path}")
     else:
         raise FileNotFoundError(f"Model checkpoint not found at {ckpt_path}")

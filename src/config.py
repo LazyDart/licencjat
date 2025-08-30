@@ -24,19 +24,26 @@ class Config(BaseModel):
     mode: Literal["train", "test", "inference"]
 
     # --- network hparams (all required except ICM group) ---
-    agent: Literal["ppo", "ppo_icm"]
+    agent: Literal["ppo", "ppo_icm", "ppo_rnd"]
     hidden_dim: int
     activation: Literal["tanh", "relu", "gelu", "elu", "leaky_relu"]
     lr_actor: float
     lr_critic: float
 
+    intrinsic_reward_eta: float | None = None
+
     # --- icm_specific_params (only required when agent == "ppo_icm") ---
     lr_icm: float | None = None
     icm_beta: float | None = None
-    icm_eta: float | None = None
+
+    # --- rnd_specific_params (only required when agent == "ppo_rnd") ---
+    lr_rnd: float | None = None
+
+    # --- experimental parameters used to modify training dynamics ---
     intrinsic_coeff: float | None = None
-    icm_skip_interval: int | None = None
-    icm_freeze_threshold: int | None = None
+    skip_interval: int | None = None
+    freeze_threshold: int | None = None
+    skip_prob: float | None = None
 
     # --- env hparams (all required) ---
     env_name: str
@@ -100,7 +107,7 @@ class Config(BaseModel):
             raise ValueError("std values must be > 0")
         return v
 
-    @field_validator("icm_beta", "icm_eta")
+    @field_validator("icm_beta", "intrinsic_reward_eta")
     @classmethod
     def _icm_in_0_1(cls, v: float | None) -> float | None:
         if v is None:
@@ -121,7 +128,7 @@ class Config(BaseModel):
         if self.agent == "ppo_icm":
             missing = [
                 name
-                for name in ("lr_icm", "icm_beta", "icm_eta", "intrinsic_coeff")
+                for name in ("lr_icm", "icm_beta", "intrinsic_reward_eta", "intrinsic_coeff")
                 if getattr(self, name) is None
             ]
             if missing:

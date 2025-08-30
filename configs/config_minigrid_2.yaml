@@ -25,18 +25,16 @@ lr_icm: 1.0e-3
 icm_beta: 0.2
 icm_eta: 0.01
 intrinsic_coeff: 0.2
-icm_skip_interval: null
-icm_skip_prob: 0.65
-
+icm_skip_interval: 5
 
 # env hparams
-env_name: "BabyAI-KeyCorridorS3R1-v0"
+env_name: "BabyAI-FindObjS7-v0"
 continuous_action_space: false
 max_eps_steps: 400
 random_seed: 42
 
 # logging hparams
-wandb_project: "ppo-experiments-babyai-key-corridor"
+wandb_project: "ppo-experiments-babyai-find-object"
 wandb_entity: "saqib1707"
 exp_name: ""
 # run_id: 1
@@ -47,7 +45,7 @@ save_interval: 100000
 log_dir: "./logs/"
 ckpt_dir: "./checkpoints/"
 
-record_video: false
+record_video: true
 record_interval: 500
 
 
