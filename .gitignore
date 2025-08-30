@@ -7,6 +7,6 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
-.DreamerUpdated/
-.logs/
+./venv
+./DreamerUpdated/
+./logs/
