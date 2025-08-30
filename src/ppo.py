@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Optional
 
 import numpy as np
 import torch
@@ -178,7 +177,7 @@ class PPOAgentICM(PPOAgent):
         max_grad_norm: float = 0.5,
         icm_beta: float = 0.2,
         icm_eta: float = 0.01,
-        icm_skip_interval: Optional[float] = None,
+        icm_skip_interval: float | None = None,
         device: str | torch.device = "cpu",
     ) -> None:
         continuous_action_space = False  # ICM does not support discountinous actions yet.
@@ -207,6 +206,7 @@ class PPOAgentICM(PPOAgent):
         self.icm_eta = icm_eta
         self.icm = ICM(deepcopy(feature_extractor), action_dim, hidden_dim, hidden_dim).to(device)
         self.icm_skip_interval = icm_skip_interval
+        self.stop_icm_updates = False
         self.n_updates = 0
 
         self.optimizer = torch.optim.Adam(
@@ -273,7 +273,9 @@ class PPOAgentICM(PPOAgent):
                     advantages=batch_advantages,
                 )
 
-                if self.icm_skip_interval is None or (self.n_updates % self.icm_skip_interval != 0):
+                if (
+                    self.icm_skip_interval is None or (self.n_updates % self.icm_skip_interval != 0)
+                ) and (not self.stop_icm_updates):
                     self._update_icm_with_batch(batch_states, batch_next_states, batch_actions)
 
         self.buffer.clear()

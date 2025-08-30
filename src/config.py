@@ -36,6 +36,7 @@ class Config(BaseModel):
     icm_eta: float | None = None
     intrinsic_coeff: float | None = None
     icm_skip_interval: int | None = None
+    icm_freeze_threshold: int | None = None
 
     # --- env hparams (all required) ---
     env_name: str

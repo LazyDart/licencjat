@@ -105,6 +105,12 @@ def run_training(config: Config, device: str) -> None:
                 else:
                     intrinsic_reward = 0
 
+                if (
+                    config.icm_freeze_threshold is not None
+                    and t_so_far < config.icm_freeze_threshold
+                ):
+                    ppo_agent.stop_icm_updates = True
+
                 ppo_agent.update_weights()
 
             if t_so_far % config.log_interval == 0:
